@@ -1,0 +1,37 @@
+# {:name query-eg :doc "Get repositoriy info"}
+{
+  repositories(first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
+    totalCount
+    nodes {
+      defaultBranchRef {
+        target {
+          ...commit
+        }
+      }
+    }
+  }
+}
+
+fragment commit on Commit {
+  history(first: 100) {
+    edges {
+      node {
+        committedDate
+      }
+    }
+  }
+}
+
+
+########################################################################
+# {:name- mutation-eg :doc "Auth a user"}
+########################################################################
+mutation {
+  authenticate(email: :email password: :password) {
+    user {
+      id
+      name
+    }
+    token
+  }
+}
