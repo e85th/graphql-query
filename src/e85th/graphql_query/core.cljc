@@ -4,10 +4,7 @@
                       [clojure.java.io    :as io]]
                :cljs [[cljs.reader       :as edn]])
             [clojure.spec.alpha :as s]
-            [clojure.string     :as str])
-  #?(:clj
-     (:import [clojure.lang IPersistentMap Keyword IPersistentCollection]
-              [java.util UUID])))
+            [clojure.string     :as str]))
 
 ;;----------------------------------------------------------------------
 ;; Domain Specs
@@ -24,9 +21,6 @@
 (s/def ::var-meta-data (s/map-of keyword? any?))
 (s/def ::var-info (s/keys :req-un [::var-name ::var-meta-data ::query-tokens]))
 (s/def ::var-infos (s/coll-of ::var-info))
-
-
-
 
 (def ^:private whitespace #{\newline \space \tab})
 
@@ -103,7 +97,7 @@
 ;;----------------------------------------------------------------------
 (s/fdef tokenize-query
         :args (s/cat :s string?)
-        :ret  (s/coll-of ::query-token))
+        :ret  ::query-tokens)
 
 (defn- tokenize-query
   "'Tokenize' to find clojure keywords.  Input is a string that represents
@@ -119,6 +113,7 @@
                                             (seq s))]
     (assert (not in-kw?) "Didn't expect input to end while still in a keyword")
     (conj tokens (apply str acc))))
+
 
 
 ;;----------------------------------------------------------------------
@@ -163,13 +158,13 @@
      (arg->str [arg] "null")
      String
      (arg->str [arg] (str "\"" arg "\""))
-     UUID
+     java.util.UUID
      (arg->str [arg] (arg->str (str arg)))
-     IPersistentMap
+     clojure.lang.IPersistentMap
      (arg->str [arg] (map->str arg))
-     IPersistentCollection
+     clojure.lang.IPersistentCollection
      (arg->str [arg] (seq->str arg))
-     Keyword
+     clojure.lang.Keyword
      (arg->str [arg] (name arg))
      Object
      (arg->str [arg] (str arg))))
@@ -265,7 +260,7 @@
          (println "WARN: Not treating as edn: " s))
        :cljs
        (catch js/Error ex
-         (println "WARN: Not treating as edn: " s)))))
+         (js/console.log "WARN: Not treating as edn: " s)))))
 
 (defn- line-state->def-info
   "Returns a map of def info if there's a key `:def` otherwise nil."
@@ -273,14 +268,44 @@
   (some-> state :def (assoc :query (str/join \newline acc))))
 
 (defmulti ^:private on-line
-  (fn [state line]
-    (cond
-      (str/starts-with? line comment-def) :def
-      (str/starts-with? line "#") :comment
-      :else :default)))
+  (fn [state [line-nbr line]]
+    (let [first-token (first (str/split line #"\W"))] ; split on non-word character ie anything that's not [a-zA-Z_0-9]
+      (cond
+        (str/starts-with? line comment-def) :comment-def
+        (#{"query" "mutation" "subscription"} first-token) :operation-def
+        (str/starts-with? line "#") :comment
+        :else :default))))
 
-(defmethod on-line :def
-  [state line]
+(defn valid-op-name?
+  "Does s represent a valid op name."
+  [s]
+  (true? (and s (some? (re-seq #"[_A-Za-z][_0-9A-Za-z]*" s)))))
+
+(defn- prev-def-valid?
+  [{:keys [query name name-] :as prev-def}]
+  (let [name? (or name name-)
+        query-body? (false? (some-> query str/trim str/blank?))]
+    (cond
+      (and query-body? name?) true
+      (and (not query-body?) (not name?)) true ; first query in a file with no comment-def
+      (and (not query-body?) name?) false ; first query in a file with a comment-def for example
+      :else (throw (ex-info "query-body with no name. Should never happen but oops." {:prev-def prev-def})))))
+
+(defmethod on-line :operation-def
+  [state [line-nbr line]]
+  (let [[op op-name] (str/split line #"\W")
+        prev-def (line-state->def-info state)]
+    (if (or (nil? prev-def) ; nil is ok because this could be the very first operation in the file
+            (prev-def-valid? prev-def))
+      (let [state (cond-> state
+                    prev-def (update :vars conj prev-def))]
+        (when-not (valid-op-name? op-name)
+          (throw (ex-info "Invalid or no op-name" {:line line :line-number line-nbr :file (:file state)})))
+        (assoc state :def {:name (symbol op-name)} :acc [line]))
+      (update state :acc conj line))))
+
+(defmethod on-line :comment-def
+  [state [line-nbr line]]
   ;; line is a comment beginning with "^#", the rest of the line is parsed as edn and is
   ;; expected to be a map if it doesn't parse as edn then it is ignored incase graphql
   ;; code has been commented out
@@ -297,45 +322,106 @@
   state)
 
 (defmethod on-line :default
-  [state line]
+  [state [line-nbr line]]
   (update state :acc conj line))
 
 (s/fdef parse-var-defs*
-        :args (s/cat :s string?)
+        :args (s/or :string (s/cat :s string?)
+                    :string-and-file (s/cat :s string? :file (s/nilable string?)))
         :ret coll?)
 
 (defn- parse-var-defs*
   "Take a string, most likely representing the contents of a text file, separated by new lines
    and parse it for graphql queries to represent as vars. Returns a list of
    maps which represent information for constructing the vars."
+  ([s]
+   (parse-var-defs* s nil))
+  ([s file]
+   (let [state (reduce on-line
+                       {:vars [] :acc [] :file file}
+                       (map vector (map inc (range)) (str/split-lines s)))
+         last-def (line-state->def-info state)]
+     (cond-> (:vars state)
+       last-def (conj last-def)))))
+
+;;----------------------------------------------------------------------
+(s/fdef squeeze-whitespace
+        :args (s/cat :s string?)
+        :ret  string?)
+
+(defn- squeeze-whitespace
   [s]
-  (let [state (reduce on-line
-                      {:vars [] :acc []}
-                      (str/split-lines s))
-        last-def (line-state->def-info state)]
-    (cond-> (:vars state)
-      last-def (conj last-def))))
+  (-> s
+      (str/replace #"\s+" " ")
+      (str/replace #"^\s+" "")
+      (str/replace #"\s*([{}()])\s*" "$1")))
+
+(s/fdef squeeze-tokens
+        :args (s/cat :query-tokens ::query-tokens)
+        :ret  ::query-tokens)
+
+(defn- squeeze-tokens
+  "Squeezes whitespace to produce a smaller query for the items in query-tokens
+   that are strings. Blank strings are removed so count of output query-tokens
+   may be fewer than the count of input query-tokens."
+  [query-tokens]
+  (reduce (fn [ans s]
+            (if (string? s)
+              (let [s (squeeze-whitespace s)]
+                (cond-> ans
+                  (not (str/blank? s)) (conj s)))
+              (conj ans s)))
+          []
+          query-tokens))
 
 (defn- normalized-var-info
-  [{:keys [name name- doc query] :or {doc ""}}]
+  [squeeze? {:keys [name name- doc query] :or {doc ""}}]
   (assert (or name name-))
   (let [[name private?] (if name
                           [name false]
                           [name- true])]
     {:var-name name
      :var-meta-data {:private private? :doc doc}
-     :query-tokens (tokenize-query query)}))
+     :query-tokens (cond-> (tokenize-query query)
+                     squeeze? squeeze-tokens)}))
 
+;;----------------------------------------------------------------------
+;; From expez/superstring
+;;----------------------------------------------------------------------
+(defn- split-words
+  [s]
+  (remove empty?
+          (-> s
+              (str/replace #"_|-" " ")
+              (str/replace #"([A-Z])(([A-Z])([a-z0-9]))" "$1 $2")
+              (str/replace #"([a-z])([A-Z])" "$1 $2")
+              (str/split #"[^\w0-9]+"))))
+
+(defn lisp-case
+  "Lower case s and separate words with dashes.
+  foo bar => foo-bar
+  camelCase => camel-case
+  This is also referred to as kebab-case in some circles."
+  [s]
+  (str/join "-" (map str/lower-case (split-words s))))
 
 (defn- var-info->defn
-  [{:keys [var-name var-meta-data query-tokens]}]
-  `(defn ~(vary-meta var-name merge var-meta-data)
-     [params#]
-     (hydrate-query-tokens ~query-tokens params#)))
+  [lisp-case? {:keys [var-name var-meta-data query-tokens]}]
+  (let [var-name (cond-> var-name
+                   lisp-case? (-> str lisp-case symbol))]
+    `(defn ~(vary-meta var-name merge var-meta-data)
+       ([]
+        (~var-name {}))
+       ([params#]
+        (hydrate-query-tokens ~query-tokens params#)))))
 
 
 #?(:clj
    (do
+     (s/def ::file-input (s/or :string string?
+                               :file (partial instance? java.io.File)
+                               :uri uri?))
+
      (defn- parse-var-defs
        "Returns a list of maps with keys `:name` or `:name-`, `:query` and perhaps `:doc`"
        [file]
@@ -344,16 +430,17 @@
                  java.net.URL file
                  (or (io/resource file)
                      (throw (ex-info (str "Unable to read graphql query file: " file) {:file file}))))]
-         (-> f slurp parse-var-defs*)))
+         (parse-var-defs* (slurp f) (str file))))
 
      (s/fdef defqueries
-             :args (s/cat :file (s/or :string string?
-                                      :file (partial instance? java.io.File)
-                                      :uri uri?)))
+             :args (s/or :only-file (s/cat :file ::file-input)
+                         :file-and-opts (s/cat :file ::file-input :opts map?)))
      (defmacro defqueries
        "Identifies queries in `file` and interns vars in the namespace that this is called from."
-       [file]
-       (let [vars (->> (parse-var-defs file)
-                       (map normalized-var-info)
-                       (map var-info->defn))]
-         `(do ~@vars)))))
+       ([file]
+        `(defqueries ~file {}))
+       ([file {:keys [squeeze? lisp-case-vars?] :or {squeeze? true lisp-case-vars? true} :as opts}]
+        (let [vars (->> (parse-var-defs file)
+                        (map (partial normalized-var-info squeeze?))
+                        (map (partial var-info->defn lisp-case-vars?)))]
+          `(do ~@vars))))))

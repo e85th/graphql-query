@@ -1,4 +1,4 @@
-# {:name query-eg :doc "Get repositoriy info"}
+# {:name query-repositories :doc "Get repositoriy info"}
 {
   repositories(first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
     totalCount
@@ -24,7 +24,7 @@ fragment commit on Commit {
 
 
 ########################################################################
-# {:name- mutation-eg :doc "Auth a user"}
+# {:name- authenticate :doc "Auth a user"}
 ########################################################################
 mutation {
   authenticate(email: :email password: :password) {
@@ -33,5 +33,40 @@ mutation {
       name
     }
     token
+  }
+}
+
+
+# In the following examples note that 'query', 'mutation' and 'subscription'
+# must be lowercase and are at the start of the line (no leading whitespace)
+# In these examples, the name is deduced from the identifier following
+# query, mutation and subscription. The vars will by default be
+# `mega-query`, `create-repo` and `alerts-subscription` in the namespace the
+# defqueries macro is invoked from
+
+query megaQuery($orgName: String!) {
+  viewer {
+    name
+    email
+  }
+  repositories(orgName: $orgName) {
+    name
+    url
+    createdAt
+  }
+}
+
+mutation createRepo {
+  createRepo(input: {name: :name}) {
+    name
+    url
+    createdAt
+  }
+}
+
+subscription alertsSubscription {
+  alerts(repo: :name) {
+    message
+    generatedAt
   }
 }
