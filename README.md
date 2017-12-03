@@ -69,19 +69,6 @@ They can be called as:
 (example/authenticate {:user "foo@bar.com" :password "abc"})
 ```
 
-
-
-```graphql
-# NB. This will throw an exception since there is no name after query
-#     and no #{:name "..."} comment
-query {
-  viewer {
-    name
-    email
-  }
-}
-```
-
 ## Other examples:
 ```clj
   (ns example
