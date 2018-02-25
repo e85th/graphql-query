@@ -1,9 +1,9 @@
-(defproject e85th/graphql-query "0.1.0-alpha1"
+(defproject e85th/graphql-query "0.1.1"
   :description "Clojure(Script) graphql query."
   :url "http://github.com/e85th/graphql-query"
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/LICENSE-2.0"}
-  :dependencies [[org.clojure/clojure "1.9.0-beta3"   :scope "provided"]
+  :dependencies [[org.clojure/clojure "1.9.0"   :scope "provided"]
                  [org.clojure/clojurescript "1.9.946" :scope "provided"]]
   :plugins [[lein-doo "0.1.7"]]
   :profiles {:dev {:dependencies [[orchestra "2017.08.13"]]}}
