@@ -1,3 +1,20 @@
+# {:snip repo-info}
+  name
+  url
+  createdAt
+
+# {:snip commit-fragment}
+fragment commit on Commit {
+  history(first: 100) {
+    edges {
+      node {
+        committedDate
+      }
+    }
+  }
+}
+
+
 # {:name query-repositories :doc "Get repositoriy info"}
 {
   repositories(first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
@@ -70,3 +87,26 @@ subscription alertsSubscription {
     generatedAt
   }
 }
+
+
+mutation createRepoVarSub {
+  createRepo(input: {name: :name}) {
+    ${repo-info}
+  }
+}
+
+# {:name query-repositories-var-sub :doc "Get repositoriy info"}
+{
+  repositories(first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
+    totalCount
+    nodes {
+      defaultBranchRef {
+        target {
+          ...commit
+        }
+      }
+    }
+  }
+}
+
+${commit-fragment}

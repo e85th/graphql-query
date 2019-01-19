@@ -1,23 +1,23 @@
 {:paths ["src"]
  :deps
- {org.clojure/clojure                          {:mvn/version "1.9.0"   :scope "provided"}
-  org.clojure/clojurescript                    {:mvn/version "1.9.946" :scope "provided"}}
+ {org.clojure/clojure                          {:mvn/version "1.10.0"   :scope "provided"}
+  org.clojure/clojurescript                    {:mvn/version "1.10.439" :scope "provided"}}
 
  :aliases
  {:dev {:extra-paths ["test"]
         :extra-deps
-        {orchestra {:mvn/version "2017.08.13"}}}
+        {orchestra {:mvn/version "2018.12.06-2"}}}
   :test-clj {:main-opts ["-m" "cognitect.test-runner"]
              :extra-paths ["test"]
              :extra-deps
              {expectations {:mvn/version "2.2.0-rc3"}
               com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                                         :sha "5fb4fc46ad0bf2e0ce45eba5b9117a2e89166479"}}}
+                                         :sha "3cb0a9daf1cb746259dc8309b218f9211ad3b33b"}}}
   :test-cljs {:extra-deps {olical/cljs-test-runner {:mvn/version "2.1.0"}}
               :extra-paths ["test"]
               :main-opts ["-m" "cljs-test-runner.main"]}
   :outdated {:extra-deps {olical/depot {:mvn/version "1.2.0"}}
              :main-opts ["-m" "depot.outdated.main"]}
-  :cider-clj {:extra-deps {org.clojure/clojure {:mvn/version "1.9.0"}
-                           cider/cider-nrepl {:mvn/version "0.18.0"}}
-              :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}}}
+  :cider {:extra-deps {org.clojure/clojure {:mvn/version "1.10.0"}
+                       cider/cider-nrepl {:mvn/version "0.20.0"}}
+          :main-opts ["-m" "nrepl.cmdline" "--interactive" "--color" "--middleware" "[cider.nrepl/cider-middleware]"]}}}

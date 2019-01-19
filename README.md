@@ -102,8 +102,38 @@ They can be called as:
 
 `:name-` will define a var that is private.
 
+
 Any line beginning with `query`, `mutation`, or `subscription` triggers the definition of a new `defn` unless
 if there is already a `# {:` above it.
+
+## Variable Substitution
+First define a `snip`.
+```
+# {:snip repo-info}
+  name
+  url
+  createdAt
+```
+
+Later use the snip.
+```
+mutation createRepo {
+  createRepo(input: {name: :name}) {
+    ${repo-info}
+  }
+}
+```
+
+which will be expanded to
+```
+mutation createRepo {
+  createRepo(input: {name: :name}) {
+    name
+    url
+    createdAt
+  }
+}
+```
 
 
 ## Gotchas

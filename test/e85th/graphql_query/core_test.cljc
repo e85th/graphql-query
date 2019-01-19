@@ -103,12 +103,22 @@
   (is (= "foo{" (#'gq/squeeze-whitespace " foo {  ")))
   (is (= "{foo(a: 23){x y z}}" (#'gq/squeeze-whitespace " { foo (a: 23)    { x y z    }   }  "))))
 
+
+(deftest substitute-snips-test
+  (is (= "hi how are mary you mary?"
+       (#'gq/substitute-snips {"a" "hi how"
+                               "b" "are ${name}"
+                               "name" "mary"}
+                              "${a} ${b} you ${name}?"))))
+
+
 #?(:clj
    (do
      (deftest parse-var-defs-test
-       (let [var-defs (#'gq/parse-var-defs (io/as-file "test/data/queries.graphql"))
+       (let [var-defs (->> (#'gq/parse-var-defs (io/as-file "test/data/queries.graphql"))
+                           (remove :snip))
              parse-name #(or (:name %) (:name- %))]
-         (is (= '[query-repositories authenticate megaQuery createRepo alertsSubscription]
+         (is (= '[query-repositories authenticate megaQuery createRepo alertsSubscription createRepoVarSub query-repositories-var-sub]
                 (map parse-name var-defs)))))
 
 
@@ -134,4 +144,10 @@
               (create-repo {:name "foo"})))
 
        (is (= "subscription alertsSubscription{alerts(repo: \"foo\"){message generatedAt}}"
-              (alerts-subscription {:name "foo"}))))))
+              (alerts-subscription {:name "foo"})))
+
+       (is (= "mutation createRepoVarSub{createRepo(input:{name: \"foo\"}){name url createdAt}}"
+              (create-repo-var-sub {:name "foo"})))
+
+       (is (= "{repositories(first: 100, orderBy:{field: STARGAZERS, direction: DESC}){totalCount nodes{defaultBranchRef{target{...commit}}}}}fragment commit on Commit{history(first: 100){edges{node{committedDate}}}}"
+              (query-repositories-var-sub))))))

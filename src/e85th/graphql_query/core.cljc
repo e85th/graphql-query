@@ -33,6 +33,18 @@
 (def ^:private keyword-char? (comp some? keyword-chars))
 (def ^:private allowed-chars-prior-kw-start (conj whitespace \{ \())
 
+(defn group-by+
+  "Similar to group by, but allows applying val-fn to each item in the grouped by list of each key.
+   Can also apply val-agg-fn to the result of mapping val-fn. All input fns are 1 arity.
+   If val-fn and val-agg-fn were the identity fn then this behaves the same as group-by."
+  ([key-fn val-fn xs]
+   (group-by+ key-fn val-fn identity xs))
+  ([key-fn val-fn val-agg-fn xs]
+   (reduce (fn [m [k v]]
+             (assoc m k (val-agg-fn (map val-fn v))))
+           {}
+           (group-by key-fn xs))))
+
 ;;----------------------------------------------------------------------
 ;; Parsing Graphql Query to look for keywords
 ;; Strategy: Iterate over each char looking for things that might
@@ -374,12 +386,39 @@
           []
           query-tokens))
 
+(def variable-pattern #"\$\{[_A-Za-z][A-Za-z0-9_-]*?\}")
+
+(defn- extract-variable-name
+  "Input ${e} output e. Removes the ${ and }"
+  [s]
+  (subs s 2 (dec (count s))))
+
+
+(defn- substitute-snips
+  "Does replacements of variables ie ${variable} with it's replacement
+   until no variables remain."
+  [snip-name->body query]
+  (loop [query query]
+    (let [variables (-> (re-seq variable-pattern query)
+                        distinct)]
+      (if-not (seq variables)
+        query
+        (recur
+         (reduce (fn [q variable]
+                   (let [var-name (extract-variable-name variable)
+                         body (snip-name->body var-name)]
+                     (assert body (str "No snip with name: " var-name))
+                     (str/replace q variable body)))
+                 query
+                 variables))))))
+
 (defn- normalized-var-info
-  [squeeze? {:keys [name name- doc query] :or {doc ""}}]
+  [squeeze? snip-name->body {:keys [name name- doc query] :or {doc ""}}]
   (assert (or name name-))
   (let [[name private?] (if name
                           [name false]
-                          [name- true])]
+                          [name- true])
+        query (substitute-snips snip-name->body query)]
     {:var-name name
      :var-meta-data {:private private? :doc doc}
      :query-tokens (cond-> (tokenize-query query)
@@ -432,6 +471,16 @@
                      (throw (ex-info (str "Unable to read graphql query file: " file) {:file file}))))]
          (parse-var-defs* (slurp f) (str file))))
 
+     (defn- parse-ops*
+       [file {:keys [squeeze? lisp-case-vars?] :or {squeeze? true lisp-case-vars? true} :as opts}]
+       (let [ops (parse-var-defs file)
+             vars (remove :snip ops)
+             snip-name->body (->> (filter :snip ops)
+                                  (group-by+ (comp name :snip) :query first))]
+         (->> vars
+              (map (partial normalized-var-info squeeze? snip-name->body))
+              (map (partial var-info->defn lisp-case-vars?)))))
+
      (s/fdef defqueries
              :args (s/or :only-file (s/cat :file ::file-input)
                          :file-and-opts (s/cat :file ::file-input :opts map?)))
@@ -439,8 +488,6 @@
        "Identifies queries in `file` and interns vars in the namespace that this is called from."
        ([file]
         `(defqueries ~file {}))
-       ([file {:keys [squeeze? lisp-case-vars?] :or {squeeze? true lisp-case-vars? true} :as opts}]
-        (let [vars (->> (parse-var-defs file)
-                        (map (partial normalized-var-info squeeze?))
-                        (map (partial var-info->defn lisp-case-vars?)))]
+       ([file opts]
+        (let [vars (parse-ops* file opts)]
           `(do ~@vars))))))
